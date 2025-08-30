@@ -30,12 +30,10 @@ class LangGraphAgent:
         workflow.add_node("generate_response", self._generate_response)
         workflow.add_node("handle_special_request", self._handle_special_request)
         
-        # Add edges
-        workflow.add_edge("analyze_input", "route_request")
-        workflow.add_edge("generate_response", END)
-        workflow.add_edge("handle_special_request", END)
+        # Set entry point
+        workflow.set_entry_point("analyze_input")
         
-        # Add conditional routing
+        # Add conditional routing from analyze_input
         workflow.add_conditional_edges(
             "analyze_input",
             self._route_request,
@@ -44,6 +42,10 @@ class LangGraphAgent:
                 "special": "handle_special_request"
             }
         )
+        
+        # Add edges to END
+        workflow.add_edge("generate_response", END)
+        workflow.add_edge("handle_special_request", END)
         
         return workflow.compile()
     

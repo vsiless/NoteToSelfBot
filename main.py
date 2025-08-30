@@ -4,17 +4,11 @@ Main entry point for the LangGraph Telegram Bot.
 """
 
 import sys
-import signal
 import asyncio
 from bot.config import Config
 from bot.telegram_handler import TelegramBot
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals gracefully."""
-    print("\nShutting down bot...")
-    sys.exit(0)
-
-async def main():
+def main():
     """Main function to run the bot."""
     try:
         # Validate configuration
@@ -25,10 +19,6 @@ async def main():
         bot = TelegramBot()
         print("🤖 Bot initialized successfully")
         print("🚀 Starting bot... (Press Ctrl+C to stop)")
-        
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
         
         # Run the bot
         bot.run()
@@ -41,9 +31,13 @@ async def main():
         print("3. Set your Telegram bot token in .env")
         sys.exit(1)
         
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+        sys.exit(0)
+        
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
