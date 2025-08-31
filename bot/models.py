@@ -20,6 +20,17 @@ class TaskStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     DONE = "done"
     EXPIRED = "expired"
+    PAUSED = "paused"
+    WAITING = "waiting"
+
+class ProgressMilestone(BaseModel):
+    """Progress milestone for tracking task completion."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    description: Optional[str] = None
+    completed: bool = False
+    completed_at: Optional[datetime] = None
+    target_date: Optional[datetime] = None
 
 class LinkItem(BaseModel):
     """Model for storing link information."""
@@ -35,6 +46,10 @@ class LinkItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     priority: int = Field(default=1, ge=1, le=5)  # 1=lowest, 5=highest
+    milestones: List[ProgressMilestone] = Field(default_factory=list)
+    progress_percentage: int = Field(default=0, ge=0, le=100)
+    last_activity: Optional[datetime] = None
+    reminder_sent: Optional[datetime] = None
     
     def is_overdue(self) -> bool:
         """Check if the task is overdue."""
@@ -48,6 +63,41 @@ class LinkItem(BaseModel):
             return None
         delta = self.deadline - datetime.now()
         return delta.days
+    
+    def add_milestone(self, title: str, description: Optional[str] = None, target_date: Optional[datetime] = None) -> ProgressMilestone:
+        """Add a new milestone."""
+        milestone = ProgressMilestone(title=title, description=description, target_date=target_date)
+        self.milestones.append(milestone)
+        self.updated_at = datetime.now()
+        return milestone
+    
+    def complete_milestone(self, milestone_id: str) -> bool:
+        """Mark a milestone as completed."""
+        for milestone in self.milestones:
+            if milestone.id.startswith(milestone_id):
+                milestone.completed = True
+                milestone.completed_at = datetime.now()
+                self.last_activity = datetime.now()
+                self.updated_at = datetime.now()
+                self._update_progress()
+                return True
+        return False
+    
+    def _update_progress(self):
+        """Update progress percentage based on completed milestones."""
+        if not self.milestones:
+            return
+        completed = sum(1 for m in self.milestones if m.completed)
+        self.progress_percentage = int((completed / len(self.milestones)) * 100)
+    
+    def get_progress_summary(self) -> str:
+        """Get a summary of progress."""
+        if not self.milestones:
+            return f"Progress: {self.progress_percentage}%"
+        
+        completed = sum(1 for m in self.milestones if m.completed)
+        total = len(self.milestones)
+        return f"Progress: {self.progress_percentage}% ({completed}/{total} milestones)"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for storage."""
@@ -63,13 +113,26 @@ class LinkItem(BaseModel):
             "updated_at": self.updated_at.isoformat(),
             "tags": self.tags,
             "notes": self.notes,
-            "priority": self.priority
+            "priority": self.priority,
+            "milestones": [
+                {
+                    "id": m.id,
+                    "title": m.title,
+                    "description": m.description,
+                    "completed": m.completed,
+                    "completed_at": m.completed_at.isoformat() if m.completed_at else None,
+                    "target_date": m.target_date.isoformat() if m.target_date else None
+                } for m in self.milestones
+            ],
+            "progress_percentage": self.progress_percentage,
+            "last_activity": self.last_activity.isoformat() if self.last_activity else None,
+            "reminder_sent": self.reminder_sent.isoformat() if self.reminder_sent else None
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LinkItem':
         """Create from dictionary."""
-        return cls(
+        link = cls(
             id=data["id"],
             url=data["url"],
             title=data["title"],
@@ -81,8 +144,25 @@ class LinkItem(BaseModel):
             updated_at=datetime.fromisoformat(data["updated_at"]),
             tags=data.get("tags", []),
             notes=data.get("notes"),
-            priority=data.get("priority", 1)
+            priority=data.get("priority", 1),
+            progress_percentage=data.get("progress_percentage", 0),
+            last_activity=datetime.fromisoformat(data["last_activity"]) if data.get("last_activity") else None,
+            reminder_sent=datetime.fromisoformat(data["reminder_sent"]) if data.get("reminder_sent") else None
         )
+        
+        # Reconstruct milestones
+        for milestone_data in data.get("milestones", []):
+            milestone = ProgressMilestone(
+                id=milestone_data["id"],
+                title=milestone_data["title"],
+                description=milestone_data.get("description"),
+                completed=milestone_data["completed"],
+                completed_at=datetime.fromisoformat(milestone_data["completed_at"]) if milestone_data.get("completed_at") else None,
+                target_date=datetime.fromisoformat(milestone_data["target_date"]) if milestone_data.get("target_date") else None
+            )
+            link.milestones.append(milestone)
+        
+        return link
 
 class UserData(BaseModel):
     """Model for storing user-specific data."""

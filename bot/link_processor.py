@@ -37,7 +37,9 @@ class LinkProcessor:
             ],
             LinkCategory.GRANT_APPLICATION: [
                 'grant', 'funding', 'scholarship', 'fellowship', 'award',
-                'submission', 'proposal', 'fund', 'financial'
+                'submission', 'proposal', 'fund', 'financial', 'program',
+                'accelerator', 'incubator', 'founders', 'startup', 'scholars',
+                'cohort', 'bootcamp', 'residency'
             ],
             LinkCategory.NOTES_TO_READ: [
                 'read', 'article', 'paper', 'document', 'note', 'study',
@@ -241,9 +243,14 @@ class LinkProcessor:
         if any(job_domain in domain for job_domain in job_domains):
             return LinkCategory.JOB_APPLICATION
         
-        # Grant/funding sites
+        # Grant/funding sites and application programs
         grant_domains = ['grants.gov', 'foundationcenter.org', 'scholarships.com']
         if any(grant_domain in domain for grant_domain in grant_domains):
+            return LinkCategory.GRANT_APPLICATION
+        
+        # Startup programs, accelerators, and fellowship applications
+        startup_application_domains = ['startup.google.com', 'cohere.com', 'openai.com', 'anthropic.com']
+        if any(startup_domain in domain for startup_domain in startup_application_domains):
             return LinkCategory.GRANT_APPLICATION
         
         # Learning platforms

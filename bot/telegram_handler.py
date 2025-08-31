@@ -3,6 +3,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from .langgraph_agent import LangGraphAgent
 from .config import Config
+from .reminder_system import ReminderSystem
+from .storage import FileStorage
 
 # Set up logging
 logging.basicConfig(
@@ -18,6 +20,14 @@ class TelegramBot:
         """Initialize the bot with LangGraph agent."""
         self.agent = LangGraphAgent(Config.OPENAI_MODEL_NAME)
         self.application = Application.builder().token(Config.TELEGRAM_BOT_TOKEN).build()
+        
+        # Initialize reminder system
+        self.storage = FileStorage()
+        self.reminder_system = ReminderSystem(self.storage, self._send_reminder_message)
+        
+        # Connect reminder system to agent
+        self.agent.set_reminder_system(self.reminder_system)
+        
         self._setup_handlers()
     
     def _setup_handlers(self):
@@ -78,12 +88,52 @@ class TelegramBot:
                 "I'm sorry, something went wrong. Please try again later."
             )
     
+    def _send_reminder_message(self, user_id: str, message: str):
+        """Send a reminder message to a user."""
+        import asyncio
+        import threading
+        
+        async def send_async():
+            try:
+                await self.application.bot.send_message(
+                    chat_id=user_id, 
+                    text=message, 
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Reminder sent successfully to user {user_id}")
+            except Exception as e:
+                logger.error(f"Error sending reminder to user {user_id}: {e}")
+        
+        # Handle async message sending from background thread
+        try:
+            # Try to get the current event loop
+            loop = asyncio.get_running_loop()
+            # Schedule the coroutine to run in the main thread's event loop
+            asyncio.run_coroutine_threadsafe(send_async(), loop)
+        except RuntimeError:
+            # No running event loop, create a new one in a separate thread
+            def run_in_thread():
+                asyncio.run(send_async())
+            
+            thread = threading.Thread(target=run_in_thread, daemon=True)
+            thread.start()
+    
     def run(self):
         """Start the bot."""
         logger.info("Starting Telegram bot...")
-        self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Start the reminder system
+        self.reminder_system.start()
+        logger.info("Reminder system started")
+        
+        try:
+            self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+        finally:
+            # Stop the reminder system when bot stops
+            self.reminder_system.stop()
     
     async def stop(self):
         """Stop the bot."""
         logger.info("Stopping Telegram bot...")
+        self.reminder_system.stop()
         await self.application.stop()

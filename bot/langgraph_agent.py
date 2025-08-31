@@ -7,6 +7,7 @@ from .link_processor import LinkProcessor
 from .storage import FileStorage
 from .models import LinkItem, TaskStatus, LinkCategory
 from .graph_visualizer import GraphVisualizer
+from .reminder_system import ReminderSystem
 import json
 
 # Define the state structure
@@ -26,7 +27,15 @@ class LangGraphAgent:
         self.link_processor = LinkProcessor()
         self.storage = FileStorage()
         self.visualizer = GraphVisualizer()
+        
+        # Initialize reminder system with a placeholder callback
+        # This will be set properly when integrated with Telegram bot
+        self.reminder_system = None
         self.graph = self._build_graph()
+    
+    def set_reminder_system(self, reminder_system: ReminderSystem):
+        """Set the reminder system for this agent."""
+        self.reminder_system = reminder_system
     
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph workflow."""
@@ -88,7 +97,7 @@ class LangGraphAgent:
             return state
         
         # Check for special commands
-        special_keywords = ["help", "info", "about", "commands", "start", "stop", "list", "show", "deadlines", "overdue"]
+        special_keywords = ["help", "info", "about", "commands", "start", "stop", "list", "show", "deadlines", "overdue", "milestone", "progress", "remind", "snooze"]
         is_special = any(keyword in last_message.lower() for keyword in special_keywords)
         
         state["current_step"] = "special" if is_special else "general"
@@ -106,7 +115,13 @@ class LangGraphAgent:
         
         saved_links = []
         for link in links:
-            if storage.add_link(user_id, link):
+            # Use reminder system if available, otherwise fallback to regular storage
+            if self.reminder_system:
+                success = self.reminder_system.add_link_with_reminders(user_id, link)
+            else:
+                success = storage.add_link(user_id, link)
+            
+            if success:
                 saved_links.append(link)
         
         # Generate response
@@ -222,7 +237,7 @@ class LangGraphAgent:
 • Send any URL to automatically categorize and save it
 • Add context like: "Job application at Google due 12/31/2024"
 • Use: "done <link_id>" to mark as complete
-• Use: "mark <link_id> as in_progress" to update status
+• Use: "mark <link_id> as in_progress/paused/waiting" to update status
 
 **📊 View Your Links:**
 • "list all" - Show all your saved links
@@ -230,6 +245,18 @@ class LangGraphAgent:
 • "list grants" - Show grant applications
 • "list overdue" - Show overdue items
 • "list deadlines" - Show upcoming deadlines
+
+**🎯 Progress & Milestones:**
+• "add milestone <link_id> <title>" - Add milestone to task
+• "complete milestone <milestone_id>" - Mark milestone as done
+• "list milestones <link_id>" - Show task milestones
+• "progress all" - Show overall progress summary
+• "progress <link_id>" - Show progress for specific task
+
+**🔔 Reminders:**
+• "remind me about <link_id>" - Get immediate reminder
+• Automatic reminders for overdue, due today, tomorrow, 3 days, 1 week
+• Daily summaries (9 AM) and weekly summaries (Monday 9 AM)
 
 **🎨 Visualization:**
 • "visualize" or "graph" - Generate LangGraph workflow diagrams
@@ -240,9 +267,10 @@ class LangGraphAgent:
 • /info - Get information about the bot
 
 **💡 Examples:**
-• "https://example.com/job - Software Engineer position"
+• "https://example.com/job - Software Engineer position due next Friday"
 • "done abc12345" (use first 8 chars of link ID)
-• "list all" to see your saved links"""
+• "add milestone abc12345 Submit resume"
+• "progress all" to see your overall progress"""
             
             state["messages"].append(AIMessage(content=help_text))
         
@@ -292,6 +320,21 @@ Type "help" to see all available commands."""
         elif "visualize" in last_message or "graph" in last_message or "plot" in last_message:
             # Handle visualization requests
             response = self._handle_visualization_request()
+            state["messages"].append(AIMessage(content=response))
+        
+        elif "milestone" in last_message:
+            # Handle milestone commands
+            response = self._handle_milestone_command(last_message, user_id, storage)
+            state["messages"].append(AIMessage(content=response))
+        
+        elif "progress" in last_message:
+            # Handle progress commands
+            response = self._handle_progress_command(last_message, user_id, storage)
+            state["messages"].append(AIMessage(content=response))
+        
+        elif "remind" in last_message:
+            # Handle reminder commands
+            response = self._handle_reminder_command(last_message, user_id, storage)
             state["messages"].append(AIMessage(content=response))
         
         else:
@@ -418,6 +461,295 @@ The images have been saved to your project directory!"""
             
         except Exception as e:
             return f"❌ Error generating visualization: {e}"
+    
+    def _handle_milestone_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """Handle milestone-related commands."""
+        command_lower = command.lower()
+        
+        # Parse different milestone commands
+        if "add milestone" in command_lower:
+            return self._add_milestone(command, user_id, storage)
+        elif "complete milestone" in command_lower or "done milestone" in command_lower:
+            return self._complete_milestone(command, user_id, storage)
+        elif "list milestone" in command_lower or "show milestone" in command_lower:
+            return self._list_milestones(command, user_id, storage)
+        else:
+            return """📋 **Milestone Commands:**
+• `add milestone <link_id> <title>` - Add a milestone to a task
+• `complete milestone <milestone_id>` - Mark milestone as done
+• `list milestones <link_id>` - Show milestones for a task
+
+**Example:** `add milestone abc12345 Submit application`"""
+    
+    def _add_milestone(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """Add a milestone to a link."""
+        try:
+            # Parse: "add milestone <link_id> <title>"
+            parts = command.split(" ", 3)
+            if len(parts) < 4:
+                return "❌ Usage: `add milestone <link_id> <title>`"
+            
+            link_id = parts[2]
+            title = parts[3]
+            
+            user_links = storage.get_user_links(user_id)
+            target_link = None
+            
+            for link in user_links:
+                if link.id.startswith(link_id):
+                    target_link = link
+                    break
+            
+            if not target_link:
+                return f"❌ Could not find link with ID `{link_id}`"
+            
+            milestone = target_link.add_milestone(title)
+            
+            # Save the updated link
+            user_data = storage.load_user_data(user_id)
+            storage.save_user_data(user_data)
+            
+            return f"""✅ **Milestone Added!**
+📋 **{milestone.title}**
+Added to: **{target_link.title}**
+🆔 Milestone ID: `{milestone.id[:8]}`
+
+Use `complete milestone {milestone.id[:8]}` to mark as done."""
+            
+        except Exception as e:
+            return f"❌ Error adding milestone: {e}"
+    
+    def _complete_milestone(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """Complete a milestone."""
+        try:
+            # Parse: "complete milestone <milestone_id>"
+            parts = command.split()
+            if len(parts) < 3:
+                return "❌ Usage: `complete milestone <milestone_id>`"
+            
+            milestone_id = parts[2]
+            
+            user_links = storage.get_user_links(user_id)
+            
+            for link in user_links:
+                if link.complete_milestone(milestone_id):
+                    # Save the updated data
+                    user_data = storage.load_user_data(user_id)
+                    storage.save_user_data(user_data)
+                    
+                    return f"""✅ **Milestone Completed!**
+Task: **{link.title}**
+📊 {link.get_progress_summary()}
+
+{"🎉 Task completed!" if link.progress_percentage == 100 else "Keep up the great work!"}"""
+            
+            return f"❌ Could not find milestone with ID `{milestone_id}`"
+            
+        except Exception as e:
+            return f"❌ Error completing milestone: {e}"
+    
+    def _list_milestones(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """List milestones for a link."""
+        try:
+            # Parse: "list milestones <link_id>"
+            parts = command.split()
+            if len(parts) < 3:
+                return "❌ Usage: `list milestones <link_id>`"
+            
+            link_id = parts[2]
+            
+            user_links = storage.get_user_links(user_id)
+            target_link = None
+            
+            for link in user_links:
+                if link.id.startswith(link_id):
+                    target_link = link
+                    break
+            
+            if not target_link:
+                return f"❌ Could not find link with ID `{link_id}`"
+            
+            if not target_link.milestones:
+                return f"📭 No milestones found for **{target_link.title}**\n\nUse `add milestone {link_id} <title>` to add one."
+            
+            response_parts = [f"📋 **Milestones for {target_link.title}**\n"]
+            response_parts.append(f"📊 {target_link.get_progress_summary()}\n")
+            
+            for i, milestone in enumerate(target_link.milestones, 1):
+                status = "✅" if milestone.completed else "⭕"
+                completed_text = f" (completed {milestone.completed_at.strftime('%m/%d')})" if milestone.completed else ""
+                
+                response_parts.append(
+                    f"{i}. {status} **{milestone.title}**{completed_text}\n"
+                    f"   🆔 ID: `{milestone.id[:8]}`"
+                )
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            return f"❌ Error listing milestones: {e}"
+    
+    def _handle_progress_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """Handle progress-related commands."""
+        command_lower = command.lower()
+        
+        if "progress" in command_lower and any(word in command_lower for word in ["all", "summary", "overview"]):
+            return self._show_progress_summary(user_id, storage)
+        elif "progress" in command_lower:
+            # Show progress for specific link
+            parts = command.split()
+            if len(parts) >= 2:
+                link_id = parts[1]
+                return self._show_link_progress(link_id, user_id, storage)
+        
+        return """📊 **Progress Commands:**
+• `progress all` - Show overall progress summary
+• `progress <link_id>` - Show progress for specific task
+
+**Example:** `progress abc12345`"""
+    
+    def _show_progress_summary(self, user_id: str, storage: FileStorage) -> str:
+        """Show overall progress summary."""
+        user_links = storage.get_user_links(user_id)
+        
+        if not user_links:
+            return "📭 No tasks found. Add some links to get started!"
+        
+        # Calculate overall stats
+        total_tasks = len(user_links)
+        completed_tasks = len([l for l in user_links if l.status == TaskStatus.DONE])
+        in_progress_tasks = len([l for l in user_links if l.status == TaskStatus.IN_PROGRESS])
+        
+        # Calculate milestone stats
+        total_milestones = sum(len(l.milestones) for l in user_links)
+        completed_milestones = sum(len([m for m in l.milestones if m.completed]) for l in user_links)
+        
+        response_parts = ["📊 **Your Progress Summary**\n"]
+        
+        # Task completion rate
+        completion_rate = int((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+        response_parts.append(f"🎯 **Tasks:** {completed_tasks}/{total_tasks} completed ({completion_rate}%)")
+        
+        if in_progress_tasks > 0:
+            response_parts.append(f"🔄 **In Progress:** {in_progress_tasks} tasks")
+        
+        # Milestone completion rate
+        if total_milestones > 0:
+            milestone_rate = int((completed_milestones / total_milestones) * 100)
+            response_parts.append(f"📋 **Milestones:** {completed_milestones}/{total_milestones} completed ({milestone_rate}%)")
+        
+        # Show top priority tasks
+        high_priority = [l for l in user_links if l.priority >= 4 and l.status != TaskStatus.DONE]
+        if high_priority:
+            response_parts.append(f"\n⚡ **High Priority Tasks:** {len(high_priority)}")
+            for link in high_priority[:3]:  # Show top 3
+                days_until = link.days_until_deadline()
+                deadline_text = f" (due in {days_until} days)" if days_until and days_until > 0 else ""
+                response_parts.append(f"   • {link.title}{deadline_text}")
+        
+        return "\n".join(response_parts)
+    
+    def _show_link_progress(self, link_id: str, user_id: str, storage: FileStorage) -> str:
+        """Show progress for a specific link."""
+        user_links = storage.get_user_links(user_id)
+        target_link = None
+        
+        for link in user_links:
+            if link.id.startswith(link_id):
+                target_link = link
+                break
+        
+        if not target_link:
+            return f"❌ Could not find link with ID `{link_id}`"
+        
+        response_parts = [f"📊 **Progress for {target_link.title}**\n"]
+        
+        # Basic info
+        status_emoji = {
+            TaskStatus.TODO: "📋",
+            TaskStatus.IN_PROGRESS: "🔄",
+            TaskStatus.DONE: "✅",
+            TaskStatus.EXPIRED: "⏰",
+            TaskStatus.PAUSED: "⏸️",
+            TaskStatus.WAITING: "⏳"
+        }.get(target_link.status, "📋")
+        
+        response_parts.append(f"{status_emoji} **Status:** {target_link.status.value.replace('_', ' ').title()}")
+        response_parts.append(f"📊 **{target_link.get_progress_summary()}**")
+        
+        # Deadline info
+        if target_link.deadline:
+            days_until = target_link.days_until_deadline()
+            if days_until is not None:
+                if days_until < 0:
+                    response_parts.append(f"⚠️ **OVERDUE** by {abs(days_until)} days")
+                elif days_until == 0:
+                    response_parts.append("⏰ **Due today!**")
+                else:
+                    response_parts.append(f"📅 **Due in {days_until} days**")
+        
+        # Recent activity
+        if target_link.last_activity:
+            days_since = (datetime.now() - target_link.last_activity).days
+            if days_since == 0:
+                response_parts.append("🔥 **Active today**")
+            elif days_since == 1:
+                response_parts.append("📅 **Last activity: yesterday**")
+            else:
+                response_parts.append(f"📅 **Last activity: {days_since} days ago**")
+        
+        # Milestones summary
+        if target_link.milestones:
+            completed = len([m for m in target_link.milestones if m.completed])
+            total = len(target_link.milestones)
+            response_parts.append(f"\n📋 **Milestones:** {completed}/{total} completed")
+            
+            # Show next milestone
+            next_milestone = next((m for m in target_link.milestones if not m.completed), None)
+            if next_milestone:
+                response_parts.append(f"🎯 **Next:** {next_milestone.title}")
+        
+        return "\n".join(response_parts)
+    
+    def _handle_reminder_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+        """Handle reminder-related commands."""
+        command_lower = command.lower()
+        
+        if "remind me" in command_lower or "remind" in command_lower:
+            # Parse: "remind me about <link_id>"
+            parts = command.split()
+            if len(parts) >= 3:
+                link_id = parts[-1]  # Get the last part as link_id
+                
+                # Try to send immediate reminder
+                if hasattr(self, 'reminder_system'):
+                    success = self.reminder_system.send_immediate_reminder(user_id, link_id)
+                    if success:
+                        return "🔔 **Reminder sent!** Check above for details."
+                    else:
+                        return f"❌ Could not find link with ID `{link_id}`"
+                else:
+                    # Fallback: show link details
+                    user_links = storage.get_user_links(user_id)
+                    for link in user_links:
+                        if link.id.startswith(link_id):
+                            days_until = link.days_until_deadline()
+                            deadline_text = f"Due in {days_until} days" if days_until and days_until > 0 else "No deadline"
+                            return f"🔔 **Reminder:** {link.title}\n📅 {deadline_text}\n🔗 {link.url}"
+                    return f"❌ Could not find link with ID `{link_id}`"
+        
+        return """🔔 **Reminder Commands:**
+• `remind me about <link_id>` - Get immediate reminder
+• Automatic reminders are sent for:
+  - Overdue items (every 4 hours)
+  - Items due today (morning)
+  - Items due tomorrow (evening)
+  - Items due in 3 days
+  - Items due in 1 week
+  - Daily summaries (9 AM)
+  - Weekly summaries (Monday 9 AM)
+
+**Example:** `remind me about abc12345`"""
     
     def process_message(self, user_id: str, message: str) -> str:
         """Process a user message and return the response."""

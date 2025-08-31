@@ -100,3 +100,15 @@ class FileStorage:
         """Get upcoming deadlines for a user."""
         user_data = self.load_user_data(user_id)
         return user_data.get_upcoming_deadlines(days)
+    
+    def update_link(self, user_id: str, link_id: str, updated_link: LinkItem) -> bool:
+        """Update an existing link."""
+        user_data = self.load_user_data(user_id)
+        
+        # Find and update the link
+        for i, link in enumerate(user_data.links):
+            if link.id == link_id:
+                user_data.links[i] = updated_link
+                return self.save_user_data(user_data)
+        
+        return False
