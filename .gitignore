@@ -55,6 +55,12 @@ logs/
 *.db
 *.sqlite3
 
+# Data files
+data/
+
 # Temporary files
 *.tmp
 *.temp
+
+# Generated visualizations
+*.png
