@@ -167,8 +167,11 @@ class LangGraphAgent:
                         else:
                             deadline_text = f" 📅 Due in {days_until} days"
                 
+                # Escape problematic characters for Telegram Markdown
+                safe_title = link.title.replace('—', '-').replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+                
                 response_parts.append(
-                    f"{category_emoji} **{link.title}**\n"
+                    f"{category_emoji} **{safe_title}**\n"
                     f"🔗 {link.url}\n"
                     f"📂 Category: {link.category.value.replace('_', ' ').title()}\n"
                     f"🆔 ID: `{link.id[:8]}`{deadline_text}\n"
@@ -200,8 +203,11 @@ class LangGraphAgent:
                         else:
                             deadline_text = f" 📅 Due in {days_until} days"
                 
+                # Escape problematic characters for Telegram Markdown
+                safe_title = link.title.replace('—', '-').replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+                
                 response_parts.append(
-                    f"{category_emoji} **{link.title}**\n"
+                    f"{category_emoji} **{safe_title}**\n"
                     f"🔗 {link.url}\n"
                     f"📂 Category: {link.category.value.replace('_', ' ').title()}\n"
                     f"🆔 ID: `{link.id[:8]}`{deadline_text}\n"
@@ -475,8 +481,11 @@ Type "help" to see all available commands."""
                     else:
                         deadline_text = f" 📅 Due in {days_until} days"
             
+            # Escape problematic characters for Telegram Markdown
+            safe_title = link.title.replace('—', '-').replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]')
+            
             response_parts.append(
-                f"{i}. {status_emoji}{category_emoji} **{link.title}**\n"
+                f"{i}. {status_emoji}{category_emoji} **{safe_title}**\n"
                 f"   🔗 {link.url}\n"
                 f"   🆔 ID: `{link.id[:8]}` | Status: {link.status.value.replace('_', ' ').title()}{deadline_text}\n"
             )

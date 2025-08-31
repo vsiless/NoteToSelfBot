@@ -70,8 +70,8 @@ class TelegramBot:
             # Process the message through LangGraph agent
             response = self.agent.process_message(user_id, message_text)
             
-            # Send the response
-            await update.message.reply_text(response, parse_mode='Markdown')
+            # Send the response without Markdown parsing to avoid entity errors
+            await update.message.reply_text(response)
             
         except Exception as e:
             logger.error(f"Error processing message: {e}")
