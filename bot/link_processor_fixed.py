@@ -61,55 +61,6 @@ class LinkProcessor:
         """Extract URLs from text."""
         return self.url_pattern.findall(text)
     
-    def parse_date_string(self, date_str: str) -> Optional[datetime]:
-        """Parse a date string in various formats."""
-        try:
-            # Try different date formats
-            for fmt in ['%m/%d/%Y', '%m-%d-%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d']:
-                try:
-                    return datetime.strptime(date_str, fmt)
-                except ValueError:
-                    continue
-            
-            # Try month name format (month first) with optional year
-            month_pattern1 = r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{2,4}))?'
-            month_match1 = re.search(month_pattern1, date_str.lower())
-            if month_match1:
-                month_name = month_match1.group(1)
-                day = int(month_match1.group(2))
-                year = int(month_match1.group(3)) if month_match1.group(3) else datetime.now().year
-                
-                month_map = {
-                    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
-                    'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
-                    'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
-                }
-                
-                if month_name in month_map:
-                    return datetime(year, month_map[month_name], day)
-            
-            # Try month name format (day first)
-            month_pattern2 = r'(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{2,4})'
-            month_match2 = re.search(month_pattern2, date_str.lower())
-            if month_match2:
-                day = int(month_match2.group(1))
-                month_name = month_match2.group(2)
-                year = int(month_match2.group(3))
-                
-                month_map = {
-                    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
-                    'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
-                    'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
-                }
-                
-                if month_name in month_map:
-                    return datetime(year, month_map[month_name], day)
-                    
-        except Exception as e:
-            print(f"Error parsing date '{date_str}': {e}")
-        
-        return None
-    
     def extract_deadline(self, text: str) -> Optional[datetime]:
         """Extract deadline from text."""
         text_lower = text.lower()
@@ -129,9 +80,49 @@ class LinkProcessor:
             match = re.search(pattern, text_lower)
             if match:
                 date_str = match.group(1)
-                parsed_date = self.parse_date_string(date_str)
-                if parsed_date:
-                    return parsed_date
+                try:
+                    # Try different date formats
+                    for fmt in ['%m/%d/%Y', '%m-%d-%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d']:
+                        try:
+                            return datetime.strptime(date_str, fmt)
+                        except ValueError:
+                            continue
+                    
+                    # Try month name format (month first)
+                    month_pattern1 = r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{2,4})'
+                    month_match1 = re.search(month_pattern1, date_str)
+                    if month_match1:
+                        month_name = month_match1.group(1)
+                        day = int(month_match1.group(2))
+                        year = int(month_match1.group(3))
+                        
+                        month_map = {
+                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                        }
+                        
+                        if month_name in month_map:
+                            return datetime(year, month_map[month_name], day)
+                    
+                    # Try month name format (day first)
+                    month_pattern2 = r'(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{2,4})'
+                    month_match2 = re.search(month_pattern2, date_str)
+                    if month_match2:
+                        day = int(month_match2.group(1))
+                        month_name = month_match2.group(2)
+                        year = int(month_match2.group(3))
+                        
+                        month_map = {
+                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                        }
+                        
+                        if month_name in month_map:
+                            return datetime(year, month_map[month_name], day)
+                except:
+                    continue
         
         return None
     
@@ -188,7 +179,7 @@ class LinkProcessor:
         
         # Enhanced deadline patterns for webpage content
         deadline_patterns = [
-            r'apply\s+by\s+((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?(?:\s+\d{2,4})?)',
+            r'apply\s+by\s+((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2}(?:st|nd|rd|th)?\s+\d{2,4})',
             r'apply\s+by\s+(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})',
             r'deadline[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
             r'due[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})',
@@ -204,9 +195,49 @@ class LinkProcessor:
             match = re.search(pattern, content_lower)
             if match:
                 date_str = match.group(1)
-                parsed_date = self.parse_date_string(date_str)
-                if parsed_date:
-                    return parsed_date
+                try:
+                    # Try different date formats
+                    for fmt in ['%m/%d/%Y', '%m-%d-%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y-%m-%d']:
+                        try:
+                            return datetime.strptime(date_str, fmt)
+                        except ValueError:
+                            continue
+                    
+                    # Try month name format (month first)
+                    month_pattern1 = r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})(?:st|nd|rd|th)?\s+(\d{2,4})'
+                    month_match1 = re.search(month_pattern1, date_str)
+                    if month_match1:
+                        month_name = month_match1.group(1)
+                        day = int(month_match1.group(2))
+                        year = int(month_match1.group(3))
+                        
+                        month_map = {
+                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                        }
+                        
+                        if month_name in month_map:
+                            return datetime(year, month_map[month_name], day)
+                    
+                    # Try month name format (day first)
+                    month_pattern2 = r'(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{2,4})'
+                    month_match2 = re.search(month_pattern2, date_str)
+                    if month_match2:
+                        day = int(month_match2.group(1))
+                        month_name = month_match2.group(2)
+                        year = int(month_match2.group(3))
+                        
+                        month_map = {
+                            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+                            'may': 5, 'jun': 6, 'jul': 7, 'aug': 8,
+                            'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                        }
+                        
+                        if month_name in month_map:
+                            return datetime(year, month_map[month_name], day)
+                except:
+                    continue
         
         return None
     
