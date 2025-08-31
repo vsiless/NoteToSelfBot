@@ -112,6 +112,7 @@ class LangGraphAgent:
         user_id = state["user_id"]
         links = state["links"]
         storage = state["storage"]
+        is_group = state["context"].get("is_group", False)
         
         saved_links = []
         updated_links = []
@@ -121,14 +122,14 @@ class LangGraphAgent:
                 # Use the new deduplication method
                 if self.reminder_system:
                     # Use the new deduplication method with reminders
-                    result_link, is_new = self.reminder_system.add_or_update_link_with_reminders(user_id, link)
+                    result_link, is_new = self.reminder_system.add_or_update_link_with_reminders(user_id, link, is_group)
                     if is_new:
                         saved_links.append(result_link)
                     else:
                         updated_links.append(result_link)
                 else:
                     # Use deduplication in storage
-                    result_link, is_new = storage.add_or_update_link(user_id, link)
+                    result_link, is_new = storage.add_or_update_link(user_id, link, is_group)
                     if is_new:
                         saved_links.append(result_link)
                     else:
@@ -151,6 +152,7 @@ class LangGraphAgent:
                     LinkCategory.RESEARCH: "🔬",
                     LinkCategory.LEARNING: "🎓",
                     LinkCategory.PERSONAL: "👤",
+                    LinkCategory.REAL_ESTATE: "🏠",
                     LinkCategory.OTHER: "🔗"
                 }.get(link.category, "🔗")
                 
@@ -187,6 +189,7 @@ class LangGraphAgent:
                     LinkCategory.RESEARCH: "🔬",
                     LinkCategory.LEARNING: "🎓",
                     LinkCategory.PERSONAL: "👤",
+                    LinkCategory.REAL_ESTATE: "🏠",
                     LinkCategory.OTHER: "🔗"
                 }.get(link.category, "🔗")
                 
@@ -226,12 +229,13 @@ class LangGraphAgent:
         user_id = state["user_id"]
         storage = state["storage"]
         status_update = state["context"]["status_update"]
+        is_group = state["context"].get("is_group", False)
         
         if status_update:
             link_id, new_status = status_update
             
             # Try to find the link by ID (first 8 characters)
-            user_links = storage.get_user_links(user_id)
+            user_links = storage.get_user_links(user_id, is_group)
             target_link = None
             
             for link in user_links:
@@ -239,7 +243,7 @@ class LangGraphAgent:
                     target_link = link
                     break
             
-            if target_link and storage.update_link_status(user_id, target_link.id, new_status):
+            if target_link and storage.update_link_status(user_id, target_link.id, new_status, is_group):
                 status_emoji = {
                     TaskStatus.TODO: "📋",
                     TaskStatus.IN_PROGRESS: "🔄",
@@ -285,6 +289,7 @@ class LangGraphAgent:
         last_message = messages[-1].content.lower() if messages else ""
         user_id = state["user_id"]
         storage = state["storage"]
+        is_group = state["context"].get("is_group", False)
         
         if "help" in last_message or "commands" in last_message:
             help_text = """🤖 **Link Organizer Bot - Available Commands:**
@@ -299,6 +304,7 @@ class LangGraphAgent:
 • "list all" - Show all active links (excludes overdue)
 • "list jobs" - Show active job applications
 • "list grants" - Show active grant applications
+• "list real estate" - Show real estate listings
 • "list overdue" - Show overdue items
 • "list deadlines [days]" - Show upcoming deadlines (e.g., "list deadlines 30")
 • "list reminders" - Show links with active reminders
@@ -371,7 +377,7 @@ Type "help" to see all available commands."""
         
         elif "list" in last_message:
             # Handle list commands
-            response = self._handle_list_command(last_message, user_id, storage)
+            response = self._handle_list_command(last_message, user_id, storage, is_group)
             state["messages"].append(AIMessage(content=response))
         
         elif "visualize" in last_message or "graph" in last_message or "plot" in last_message:
@@ -381,17 +387,17 @@ Type "help" to see all available commands."""
         
         elif "milestone" in last_message:
             # Handle milestone commands
-            response = self._handle_milestone_command(last_message, user_id, storage)
+            response = self._handle_milestone_command(last_message, user_id, storage, is_group)
             state["messages"].append(AIMessage(content=response))
         
         elif "progress" in last_message:
             # Handle progress commands
-            response = self._handle_progress_command(last_message, user_id, storage)
+            response = self._handle_progress_command(last_message, user_id, storage, is_group)
             state["messages"].append(AIMessage(content=response))
         
         elif "remind" in last_message:
             # Handle reminder commands
-            response = self._handle_reminder_command(last_message, user_id, storage)
+            response = self._handle_reminder_command(last_message, user_id, storage, is_group)
             state["messages"].append(AIMessage(content=response))
         
         else:
@@ -400,10 +406,10 @@ Type "help" to see all available commands."""
         
         return state
     
-    def _handle_list_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _handle_list_command(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Handle list commands to show user's links."""
         command_lower = command.lower()
-        user_links = storage.get_user_links(user_id)
+        user_links = storage.get_user_links(user_id, is_group)
         
         if not user_links:
             return "📭 You don't have any saved links yet. Send me a URL to get started!"
@@ -421,8 +427,12 @@ Type "help" to see all available commands."""
             grant_links = [link for link in user_links if link.category == LinkCategory.GRANT_APPLICATION and not link.is_overdue()]
             return self._format_links_list(grant_links, "Active Grant Applications")
         
+        elif "real estate" in command_lower or "house" in command_lower or "apartment" in command_lower:
+            real_estate_links = [link for link in user_links if link.category == LinkCategory.REAL_ESTATE and not link.is_overdue()]
+            return self._format_links_list(real_estate_links, "Real Estate Listings")
+        
         elif "overdue" in command_lower:
-            overdue_links = storage.get_overdue_links(user_id)
+            overdue_links = storage.get_overdue_links(user_id, is_group)
             return self._format_links_list(overdue_links, "Overdue Items")
         
         elif "deadline" in command_lower:
@@ -433,15 +443,15 @@ Type "help" to see all available commands."""
                 days = int(parts[2])
                 days = min(days, 365)  # Cap at 1 year
             
-            upcoming_links = storage.get_upcoming_deadlines(user_id, days)
+            upcoming_links = storage.get_upcoming_deadlines(user_id, days, is_group)
             return self._format_links_list(upcoming_links, f"Upcoming Deadlines (Next {days} Days)")
         
         elif "reminder" in command_lower:
-            reminder_links = self._get_links_with_reminders(user_id, storage)
+            reminder_links = self._get_links_with_reminders(user_id, storage, is_group)
             return self._format_links_list(reminder_links, "Active Reminders")
         
         else:
-            return "📋 **Available list commands:**\n• list all\n• list jobs\n• list grants\n• list overdue\n• list deadlines [days] (e.g., 'list deadlines 30')\n• list reminders"
+            return "📋 **Available list commands:**\n• list all\n• list jobs\n• list grants\n• list real estate\n• list overdue\n• list deadlines [days] (e.g., 'list deadlines 30')\n• list reminders"
     
     def _format_links_list(self, links: List[LinkItem], title: str) -> str:
         """Format a list of links for display."""
@@ -465,6 +475,7 @@ Type "help" to see all available commands."""
                 LinkCategory.RESEARCH: "🔬",
                 LinkCategory.LEARNING: "🎓",
                 LinkCategory.PERSONAL: "👤",
+                LinkCategory.REAL_ESTATE: "🏠",
                 LinkCategory.OTHER: "🔗"
             }.get(link.category, "🔗")
             
@@ -492,9 +503,9 @@ Type "help" to see all available commands."""
         
         return "\n".join(response_parts)
     
-    def _get_links_with_reminders(self, user_id: str, storage: FileStorage) -> List[LinkItem]:
+    def _get_links_with_reminders(self, user_id: str, storage: FileStorage, is_group: bool = False) -> List[LinkItem]:
         """Get links that have active reminders (have deadlines and are not done/expired)."""
-        user_links = storage.get_user_links(user_id)
+        user_links = storage.get_user_links(user_id, is_group)
         reminder_links = []
         
         for link in user_links:
@@ -550,17 +561,17 @@ The images have been saved to your project directory!"""
         except Exception as e:
             return f"❌ Error generating visualization: {e}"
     
-    def _handle_milestone_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _handle_milestone_command(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Handle milestone-related commands."""
         command_lower = command.lower()
         
         # Parse different milestone commands
         if "add milestone" in command_lower:
-            return self._add_milestone(command, user_id, storage)
+            return self._add_milestone(command, user_id, storage, is_group)
         elif "complete milestone" in command_lower or "done milestone" in command_lower:
-            return self._complete_milestone(command, user_id, storage)
+            return self._complete_milestone(command, user_id, storage, is_group)
         elif "list milestone" in command_lower or "show milestone" in command_lower:
-            return self._list_milestones(command, user_id, storage)
+            return self._list_milestones(command, user_id, storage, is_group)
         else:
             return """📋 **Milestone Commands:**
 • `add milestone <link_id> <title>` - Add a milestone to a task
@@ -569,7 +580,7 @@ The images have been saved to your project directory!"""
 
 **Example:** `add milestone abc12345 Submit application`"""
     
-    def _add_milestone(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _add_milestone(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Add a milestone to a link."""
         try:
             # Parse: "add milestone <link_id> <title>"
@@ -580,7 +591,7 @@ The images have been saved to your project directory!"""
             link_id = parts[2]
             title = parts[3]
             
-            user_links = storage.get_user_links(user_id)
+            user_links = storage.get_user_links(user_id, is_group)
             target_link = None
             
             for link in user_links:
@@ -594,8 +605,8 @@ The images have been saved to your project directory!"""
             milestone = target_link.add_milestone(title)
             
             # Save the updated link
-            user_data = storage.load_user_data(user_id)
-            storage.save_user_data(user_data)
+            user_data = storage.load_user_data(user_id, is_group)
+            storage.save_user_data(user_data, is_group)
             
             return f"""✅ **Milestone Added!**
 📋 **{milestone.title}**
@@ -607,7 +618,7 @@ Use `complete milestone {milestone.id[:8]}` to mark as done."""
         except Exception as e:
             return f"❌ Error adding milestone: {e}"
     
-    def _complete_milestone(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _complete_milestone(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Complete a milestone."""
         try:
             # Parse: "complete milestone <milestone_id>"
@@ -617,13 +628,13 @@ Use `complete milestone {milestone.id[:8]}` to mark as done."""
             
             milestone_id = parts[2]
             
-            user_links = storage.get_user_links(user_id)
+            user_links = storage.get_user_links(user_id, is_group)
             
             for link in user_links:
                 if link.complete_milestone(milestone_id):
                     # Save the updated data
-                    user_data = storage.load_user_data(user_id)
-                    storage.save_user_data(user_data)
+                    user_data = storage.load_user_data(user_id, is_group)
+                    storage.save_user_data(user_data, is_group)
                     
                     return f"""✅ **Milestone Completed!**
 Task: **{link.title}**
@@ -636,7 +647,7 @@ Task: **{link.title}**
         except Exception as e:
             return f"❌ Error completing milestone: {e}"
     
-    def _list_milestones(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _list_milestones(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """List milestones for a link."""
         try:
             # Parse: "list milestones <link_id>"
@@ -646,7 +657,7 @@ Task: **{link.title}**
             
             link_id = parts[2]
             
-            user_links = storage.get_user_links(user_id)
+            user_links = storage.get_user_links(user_id, is_group)
             target_link = None
             
             for link in user_links:
@@ -677,18 +688,18 @@ Task: **{link.title}**
         except Exception as e:
             return f"❌ Error listing milestones: {e}"
     
-    def _handle_progress_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _handle_progress_command(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Handle progress-related commands."""
         command_lower = command.lower()
         
         if "progress" in command_lower and any(word in command_lower for word in ["all", "summary", "overview"]):
-            return self._show_progress_summary(user_id, storage)
+            return self._show_progress_summary(user_id, storage, is_group)
         elif "progress" in command_lower:
             # Show progress for specific link
             parts = command.split()
             if len(parts) >= 2:
                 link_id = parts[1]
-                return self._show_link_progress(link_id, user_id, storage)
+                return self._show_link_progress(link_id, user_id, storage, is_group)
         
         return """📊 **Progress Commands:**
 • `progress all` - Show overall progress summary
@@ -696,9 +707,9 @@ Task: **{link.title}**
 
 **Example:** `progress abc12345`"""
     
-    def _show_progress_summary(self, user_id: str, storage: FileStorage) -> str:
+    def _show_progress_summary(self, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Show overall progress summary."""
-        user_links = storage.get_user_links(user_id)
+        user_links = storage.get_user_links(user_id, is_group)
         
         if not user_links:
             return "📭 No tasks found. Add some links to get started!"
@@ -737,9 +748,9 @@ Task: **{link.title}**
         
         return "\n".join(response_parts)
     
-    def _show_link_progress(self, link_id: str, user_id: str, storage: FileStorage) -> str:
+    def _show_link_progress(self, link_id: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Show progress for a specific link."""
-        user_links = storage.get_user_links(user_id)
+        user_links = storage.get_user_links(user_id, is_group)
         target_link = None
         
         for link in user_links:
@@ -799,7 +810,7 @@ Task: **{link.title}**
         
         return "\n".join(response_parts)
     
-    def _handle_reminder_command(self, command: str, user_id: str, storage: FileStorage) -> str:
+    def _handle_reminder_command(self, command: str, user_id: str, storage: FileStorage, is_group: bool = False) -> str:
         """Handle reminder-related commands."""
         command_lower = command.lower()
         
@@ -818,7 +829,7 @@ Task: **{link.title}**
                         return f"❌ Could not find link with ID `{link_id}`"
                 else:
                     # Fallback: show link details
-                    user_links = storage.get_user_links(user_id)
+                    user_links = storage.get_user_links(user_id, is_group)
                     for link in user_links:
                         if link.id.startswith(link_id):
                             days_until = link.days_until_deadline()
@@ -839,14 +850,14 @@ Task: **{link.title}**
 
 **Example:** `remind me about abc12345`"""
     
-    def process_message(self, user_id: str, message: str) -> str:
+    def process_message(self, user_id: str, message: str, is_group: bool = False) -> str:
         """Process a user message and return the response."""
         # Initialize state
         state = AgentState(
             messages=[HumanMessage(content=message)],
             user_id=user_id,
             current_step="",
-            context={},
+            context={"is_group": is_group},
             links=[],
             storage=self.storage
         )

@@ -84,96 +84,103 @@ class ReminderSystem:
                 logger.error(f"Error in scheduler: {e}")
                 time.sleep(60)  # Wait longer on error
     
-    def _get_all_users(self) -> List[str]:
-        """Get all user IDs from storage directory."""
+    def _get_all_users_and_groups(self) -> List[Tuple[str, bool]]:
+        """Get all user IDs and group IDs from storage directory. Returns list of (id, is_group) tuples."""
         import os
-        users = []
+        entities = []
         if os.path.exists(self.storage.data_dir):
             for filename in os.listdir(self.storage.data_dir):
                 if filename.startswith("user_") and filename.endswith(".json"):
                     user_id = filename[5:-5]  # Remove "user_" prefix and ".json" suffix
-                    users.append(user_id)
-        return users
+                    entities.append((user_id, False))
+                elif filename.startswith("group_") and filename.endswith(".json"):
+                    group_id = filename[6:-5]  # Remove "group_" prefix and ".json" suffix
+                    entities.append((group_id, True))
+        return entities
     
     def _check_urgent_deadlines(self):
         """Check for overdue and today's deadlines."""
-        users = self._get_all_users()
+        entities = self._get_all_users_and_groups()
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
                 # Check overdue items
-                overdue_links = self.storage.get_overdue_links(user_id)
+                overdue_links = self.storage.get_overdue_links(entity_id, is_group)
                 if overdue_links:
-                    self._send_overdue_reminder(user_id, overdue_links)
+                    self._send_overdue_reminder(entity_id, overdue_links)
                 
                 # Check items due today
-                today_links = self._get_due_today(user_id)
+                today_links = self._get_due_today(entity_id, is_group)
                 if today_links:
-                    self._send_due_today_reminder(user_id, today_links)
+                    self._send_due_today_reminder(entity_id, today_links)
                     
             except Exception as e:
-                logger.error(f"Error checking urgent deadlines for user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error checking urgent deadlines for {entity_type} {entity_id}: {e}")
     
     def _check_upcoming_deadlines(self):
         """Check for upcoming deadlines (tomorrow, 3 days)."""
-        users = self._get_all_users()
+        entities = self._get_all_users_and_groups()
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
                 # Check items due tomorrow
-                tomorrow_links = self._get_due_in_days(user_id, 1)
+                tomorrow_links = self._get_due_in_days(entity_id, 1, is_group)
                 if tomorrow_links:
-                    self._send_due_tomorrow_reminder(user_id, tomorrow_links)
+                    self._send_due_tomorrow_reminder(entity_id, tomorrow_links)
                 
                 # Check items due in 3 days
-                three_day_links = self._get_due_in_days(user_id, 3)
+                three_day_links = self._get_due_in_days(entity_id, 3, is_group)
                 if three_day_links:
-                    self._send_due_in_3_days_reminder(user_id, three_day_links)
+                    self._send_due_in_3_days_reminder(entity_id, three_day_links)
                     
             except Exception as e:
-                logger.error(f"Error checking upcoming deadlines for user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error checking upcoming deadlines for {entity_type} {entity_id}: {e}")
     
     def _check_weekly_reminders(self):
         """Check for weekly reminders (1, 2, 3, 4 weeks before deadline)."""
-        users = self._get_all_users()
+        entities = self._get_all_users_and_groups()
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
                 # Check items due in 1 week
-                week_1_links = self._get_due_in_days(user_id, 7)
+                week_1_links = self._get_due_in_days(entity_id, 7, is_group)
                 if week_1_links:
-                    self._send_weekly_reminder(user_id, week_1_links, 1)
+                    self._send_weekly_reminder(entity_id, week_1_links, 1)
                 
                 # Check items due in 2 weeks
-                week_2_links = self._get_due_in_days(user_id, 14)
+                week_2_links = self._get_due_in_days(entity_id, 14, is_group)
                 if week_2_links:
-                    self._send_weekly_reminder(user_id, week_2_links, 2)
+                    self._send_weekly_reminder(entity_id, week_2_links, 2)
                 
                 # Check items due in 3 weeks
-                week_3_links = self._get_due_in_days(user_id, 21)
+                week_3_links = self._get_due_in_days(entity_id, 21, is_group)
                 if week_3_links:
-                    self._send_weekly_reminder(user_id, week_3_links, 3)
+                    self._send_weekly_reminder(entity_id, week_3_links, 3)
                 
                 # Check items due in 4 weeks
-                week_4_links = self._get_due_in_days(user_id, 28)
+                week_4_links = self._get_due_in_days(entity_id, 28, is_group)
                 if week_4_links:
-                    self._send_weekly_reminder(user_id, week_4_links, 4)
+                    self._send_weekly_reminder(entity_id, week_4_links, 4)
                     
             except Exception as e:
-                logger.error(f"Error checking weekly reminders for user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error checking weekly reminders for {entity_type} {entity_id}: {e}")
     
     def _check_immediate_reminders(self):
         """Check for immediate reminders (5 minutes after adding)."""
-        users = self._get_all_users()
-        logger.debug(f"Checking immediate reminders for {len(users)} users")
+        entities = self._get_all_users_and_groups()
+        logger.debug(f"Checking immediate reminders for {len(entities)} entities")
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
-                user_links = self.storage.get_user_links(user_id)
+                entity_links = self.storage.get_user_links(entity_id, is_group)
                 now = datetime.now()
-                logger.debug(f"User {user_id} has {len(user_links)} links")
+                entity_type = "group" if is_group else "user"
+                logger.debug(f"{entity_type.title()} {entity_id} has {len(entity_links)} links")
                 
-                for link in user_links:
+                for link in entity_links:
                     # Check if link was created 5 minutes ago and has a deadline
                     if (link.deadline and 
                         link.created_at and
@@ -186,26 +193,27 @@ class ReminderSystem:
                         # Send reminder if it's been 5+ minutes since creation
                         if time_since_created >= timedelta(minutes=5):
                             logger.info(f"Sending immediate reminder for link {link.id[:8]} created {time_since_created} ago")
-                            self._send_immediate_reminder(user_id, link)
+                            self._send_immediate_reminder(entity_id, link)
                             
                             # Mark reminder as sent and update storage
                             link.reminder_sent = now
-                            self.storage.update_link(user_id, link.id, link)
+                            self.storage.update_link(entity_id, link.id, link, is_group)
                         else:
                             logger.debug(f"Link {link.id[:8]} not ready for reminder yet (only {time_since_created} since creation)")
                             
             except Exception as e:
-                logger.error(f"Error checking immediate reminders for user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error checking immediate reminders for {entity_type} {entity_id}: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
     
-    def _get_due_today(self, user_id: str) -> List[LinkItem]:
+    def _get_due_today(self, entity_id: str, is_group: bool = False) -> List[LinkItem]:
         """Get items due today."""
-        user_links = self.storage.get_user_links(user_id)
+        entity_links = self.storage.get_user_links(entity_id, is_group)
         today = datetime.now().date()
         
         due_today = []
-        for link in user_links:
+        for link in entity_links:
             if (link.deadline and 
                 link.deadline.date() == today and 
                 link.status not in [TaskStatus.DONE, TaskStatus.EXPIRED]):
@@ -213,13 +221,13 @@ class ReminderSystem:
         
         return due_today
     
-    def _get_due_in_days(self, user_id: str, days: int) -> List[LinkItem]:
+    def _get_due_in_days(self, entity_id: str, days: int, is_group: bool = False) -> List[LinkItem]:
         """Get items due in exactly N days."""
-        user_links = self.storage.get_user_links(user_id)
+        entity_links = self.storage.get_user_links(entity_id, is_group)
         target_date = (datetime.now() + timedelta(days=days)).date()
         
         due_links = []
-        for link in user_links:
+        for link in entity_links:
             if (link.deadline and 
                 link.deadline.date() == target_date and 
                 link.status not in [TaskStatus.DONE, TaskStatus.EXPIRED]):
@@ -350,41 +358,43 @@ class ReminderSystem:
         self.send_message(user_id, message)
     
     def _send_daily_summary(self):
-        """Send daily summary to all users."""
-        users = self._get_all_users()
+        """Send daily summary to all users and groups."""
+        entities = self._get_all_users_and_groups()
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
-                summary = self._generate_daily_summary(user_id)
+                summary = self._generate_daily_summary(entity_id, is_group)
                 if summary:
-                    self.send_message(user_id, summary)
+                    self.send_message(entity_id, summary)
             except Exception as e:
-                logger.error(f"Error sending daily summary to user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error sending daily summary to {entity_type} {entity_id}: {e}")
     
     def _send_weekly_summary(self):
-        """Send weekly summary to all users."""
-        users = self._get_all_users()
+        """Send weekly summary to all users and groups."""
+        entities = self._get_all_users_and_groups()
         
-        for user_id in users:
+        for entity_id, is_group in entities:
             try:
-                summary = self._generate_weekly_summary(user_id)
+                summary = self._generate_weekly_summary(entity_id, is_group)
                 if summary:
-                    self.send_message(user_id, summary)
+                    self.send_message(entity_id, summary)
             except Exception as e:
-                logger.error(f"Error sending weekly summary to user {user_id}: {e}")
+                entity_type = "group" if is_group else "user"
+                logger.error(f"Error sending weekly summary to {entity_type} {entity_id}: {e}")
     
-    def _generate_daily_summary(self, user_id: str) -> Optional[str]:
-        """Generate daily summary for a user."""
-        user_links = self.storage.get_user_links(user_id)
+    def _generate_daily_summary(self, entity_id: str, is_group: bool = False) -> Optional[str]:
+        """Generate daily summary for a user or group."""
+        entity_links = self.storage.get_user_links(entity_id, is_group)
         
-        if not user_links:
+        if not entity_links:
             return None
         
         # Count items by status
-        todo_count = len([l for l in user_links if l.status == TaskStatus.TODO])
-        in_progress_count = len([l for l in user_links if l.status == TaskStatus.IN_PROGRESS])
-        overdue_count = len(self.storage.get_overdue_links(user_id))
-        upcoming_count = len(self.storage.get_upcoming_deadlines(user_id, 7))
+        todo_count = len([l for l in entity_links if l.status == TaskStatus.TODO])
+        in_progress_count = len([l for l in entity_links if l.status == TaskStatus.IN_PROGRESS])
+        overdue_count = len(self.storage.get_overdue_links(entity_id, is_group))
+        upcoming_count = len(self.storage.get_upcoming_deadlines(entity_id, 7, is_group))
         
         if todo_count == 0 and in_progress_count == 0 and overdue_count == 0 and upcoming_count == 0:
             return None
@@ -407,23 +417,23 @@ class ReminderSystem:
         
         return "\n".join(summary_parts)
     
-    def _generate_weekly_summary(self, user_id: str) -> Optional[str]:
-        """Generate weekly summary for a user."""
-        user_links = self.storage.get_user_links(user_id)
+    def _generate_weekly_summary(self, entity_id: str, is_group: bool = False) -> Optional[str]:
+        """Generate weekly summary for a user or group."""
+        entity_links = self.storage.get_user_links(entity_id, is_group)
         
-        if not user_links:
+        if not entity_links:
             return None
         
         # Count completed items this week
         week_ago = datetime.now() - timedelta(days=7)
         completed_this_week = len([
-            l for l in user_links 
+            l for l in entity_links 
             if l.status == TaskStatus.DONE and l.updated_at >= week_ago
         ])
         
         # Count items by category
-        job_count = len([l for l in user_links if l.category.value == "job_application" and l.status != TaskStatus.DONE])
-        grant_count = len([l for l in user_links if l.category.value == "grant_application" and l.status != TaskStatus.DONE])
+        job_count = len([l for l in entity_links if l.category.value == "job_application" and l.status != TaskStatus.DONE])
+        grant_count = len([l for l in entity_links if l.category.value == "grant_application" and l.status != TaskStatus.DONE])
         
         summary_parts = ["📊 **Weekly Summary**\n"]
         
@@ -437,7 +447,7 @@ class ReminderSystem:
             summary_parts.append(f"💰 {grant_count} active grant applications")
         
         # Upcoming deadlines
-        next_week_count = len(self.storage.get_upcoming_deadlines(user_id, 14))
+        next_week_count = len(self.storage.get_upcoming_deadlines(entity_id, 14, is_group))
         if next_week_count > 0:
             summary_parts.append(f"📅 {next_week_count} deadlines in the next 2 weeks")
         
@@ -468,9 +478,9 @@ class ReminderSystem:
             logger.info(f"Added link {link.id[:8]} with deadline {link.deadline} for user {user_id}")
         return success
     
-    def add_or_update_link_with_reminders(self, user_id: str, link: LinkItem) -> tuple[LinkItem, bool]:
+    def add_or_update_link_with_reminders(self, user_id: str, link: LinkItem, is_group: bool = False) -> tuple[LinkItem, bool]:
         """Add or update a link with deduplication and schedule reminders."""
-        result_link, is_new = self.storage.add_or_update_link(user_id, link)
+        result_link, is_new = self.storage.add_or_update_link(user_id, link, is_group)
         
         if result_link.deadline:
             if is_new:
@@ -509,6 +519,7 @@ class ReminderSystem:
             LinkCategory.RESEARCH: "🔬",
             LinkCategory.LEARNING: "🎓",
             LinkCategory.PERSONAL: "👤",
+            LinkCategory.REAL_ESTATE: "🏠",
             LinkCategory.OTHER: "🔗"
         }
         return emoji_map.get(category, "🔗")

@@ -56,6 +56,12 @@ class LinkProcessor:
             LinkCategory.PERSONAL: [
                 'personal', 'private', 'family', 'friend', 'social',
                 'hobby', 'interest', 'entertainment'
+            ],
+            LinkCategory.REAL_ESTATE: [
+                'house', 'home', 'apartment', 'condo', 'property', 'real estate',
+                'rent', 'rental', 'buy', 'purchase', 'lease', 'listing',
+                'bedroom', 'bathroom', 'sqft', 'square feet', 'mortgage',
+                'realtor', 'agent', 'mls', 'for sale', 'for rent'
             ]
         }
     
@@ -252,6 +258,13 @@ class LinkProcessor:
         startup_application_domains = ['startup.google.com', 'cohere.com', 'openai.com', 'anthropic.com']
         if any(startup_domain in domain for startup_domain in startup_application_domains):
             return LinkCategory.GRANT_APPLICATION
+        
+        # Real estate sites
+        real_estate_domains = ['zillow.com', 'realtor.com', 'homes.com', 'redfin.com', 'trulia.com', 
+                              'apartments.com', 'rent.com', 'padmapper.com', 'hotpads.com', 'craigslist.org',
+                              'remax.com', 'coldwellbanker.com', 'century21.com', 'kw.com', 'compass.com']
+        if any(real_estate_domain in domain for real_estate_domain in real_estate_domains):
+            return LinkCategory.REAL_ESTATE
         
         # Learning platforms
         learning_domains = ['coursera.org', 'edx.org', 'udemy.com', 'khanacademy.org', 'skillshare.com']

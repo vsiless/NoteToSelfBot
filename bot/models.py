@@ -12,6 +12,7 @@ class LinkCategory(str, Enum):
     RESEARCH = "research"
     LEARNING = "learning"
     PERSONAL = "personal"
+    REAL_ESTATE = "real_estate"
     OTHER = "other"
 
 class TaskStatus(str, Enum):

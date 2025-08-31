@@ -64,11 +64,18 @@ class TelegramBot:
     async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming text messages."""
         user_id = str(update.effective_user.id)
+        chat_id = str(update.effective_chat.id)
         message_text = update.message.text
+        
+        # Determine if this is a group chat
+        is_group = update.effective_chat.type in ['group', 'supergroup']
+        
+        # Use chat_id for group chats, user_id for private chats
+        storage_id = chat_id if is_group else user_id
         
         try:
             # Process the message through LangGraph agent
-            response = self.agent.process_message(user_id, message_text)
+            response = self.agent.process_message(storage_id, message_text, is_group)
             
             # Send the response without Markdown parsing to avoid entity errors
             await update.message.reply_text(response)
