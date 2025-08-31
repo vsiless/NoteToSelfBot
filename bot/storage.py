@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from datetime import datetime
 from .models import UserData, LinkItem, TaskStatus, LinkCategory
 
@@ -71,6 +71,15 @@ class FileStorage:
         user_data = self.load_user_data(user_id)
         user_data.add_link(link)
         return self.save_user_data(user_data)
+    
+    def add_or_update_link(self, user_id: str, link: LinkItem) -> Tuple[LinkItem, bool]:
+        """Add a new link or update existing one. Returns (link, is_new)."""
+        user_data = self.load_user_data(user_id)
+        result_link, is_new = user_data.add_or_update_link(link)
+        success = self.save_user_data(user_data)
+        if not success:
+            raise Exception("Failed to save user data")
+        return result_link, is_new
     
     def update_link_status(self, user_id: str, link_id: str, status: TaskStatus) -> bool:
         """Update link status."""

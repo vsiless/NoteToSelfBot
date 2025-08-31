@@ -6,7 +6,7 @@ import asyncio
 import schedule
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Tuple
 from threading import Thread
 from .models import LinkItem, TaskStatus
 from .storage import FileStorage
@@ -467,6 +467,31 @@ class ReminderSystem:
             self.schedule_reminders_for_link(user_id, link)
             logger.info(f"Added link {link.id[:8]} with deadline {link.deadline} for user {user_id}")
         return success
+    
+    def add_or_update_link_with_reminders(self, user_id: str, link: LinkItem) -> tuple[LinkItem, bool]:
+        """Add or update a link with deduplication and schedule reminders."""
+        result_link, is_new = self.storage.add_or_update_link(user_id, link)
+        
+        if result_link.deadline:
+            if is_new:
+                # Schedule reminders for new link
+                self.schedule_reminders_for_link(user_id, result_link)
+                logger.info(f"Added new link {result_link.id[:8]} with deadline {result_link.deadline} for user {user_id}")
+            else:
+                # Update reminders for existing link
+                self.update_link_reminders(user_id, result_link)
+                logger.info(f"Updated existing link {result_link.id[:8]} with deadline {result_link.deadline} for user {user_id}")
+        
+        return result_link, is_new
+    
+    def update_link_reminders(self, user_id: str, link: LinkItem):
+        """Update reminders for an existing link (e.g., when deadline changes)."""
+        if link.deadline:
+            # Reset reminder_sent flag if deadline changed significantly
+            # This allows new immediate reminders if the deadline was updated
+            logger.info(f"Updated reminders for link {link.id[:8]} with deadline {link.deadline}")
+            # The existing reminder system will automatically pick up the updated deadline
+            # in its regular checks
     
     def trigger_immediate_reminder_check(self):
         """Manually trigger immediate reminder check for testing."""

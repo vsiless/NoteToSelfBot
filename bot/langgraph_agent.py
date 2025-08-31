@@ -114,19 +114,35 @@ class LangGraphAgent:
         storage = state["storage"]
         
         saved_links = []
+        updated_links = []
+        
         for link in links:
-            # Use reminder system if available, otherwise fallback to regular storage
-            if self.reminder_system:
-                success = self.reminder_system.add_link_with_reminders(user_id, link)
-            else:
-                success = storage.add_link(user_id, link)
-            
-            if success:
-                saved_links.append(link)
+            try:
+                # Use the new deduplication method
+                if self.reminder_system:
+                    # Use the new deduplication method with reminders
+                    result_link, is_new = self.reminder_system.add_or_update_link_with_reminders(user_id, link)
+                    if is_new:
+                        saved_links.append(result_link)
+                    else:
+                        updated_links.append(result_link)
+                else:
+                    # Use deduplication in storage
+                    result_link, is_new = storage.add_or_update_link(user_id, link)
+                    if is_new:
+                        saved_links.append(result_link)
+                    else:
+                        updated_links.append(result_link)
+                        
+            except Exception as e:
+                print(f"Error processing link {link.url}: {e}")
+                continue
         
         # Generate response
+        response_parts = []
+        
         if saved_links:
-            response_parts = ["✅ **Links saved successfully!**\n"]
+            response_parts.append("✅ **New links saved successfully!**\n")
             for link in saved_links:
                 category_emoji = {
                     LinkCategory.JOB_APPLICATION: "💼",
@@ -157,10 +173,44 @@ class LangGraphAgent:
                     f"📂 Category: {link.category.value.replace('_', ' ').title()}\n"
                     f"🆔 ID: `{link.id[:8]}`{deadline_text}\n"
                 )
-            
+        
+        if updated_links:
+            response_parts.append("🔄 **Existing links updated!**\n")
+            for link in updated_links:
+                category_emoji = {
+                    LinkCategory.JOB_APPLICATION: "💼",
+                    LinkCategory.GRANT_APPLICATION: "💰",
+                    LinkCategory.NOTES_TO_READ: "📖",
+                    LinkCategory.RESEARCH: "🔬",
+                    LinkCategory.LEARNING: "🎓",
+                    LinkCategory.PERSONAL: "👤",
+                    LinkCategory.OTHER: "🔗"
+                }.get(link.category, "🔗")
+                
+                deadline_text = ""
+                if link.deadline:
+                    days_until = link.days_until_deadline()
+                    if days_until is not None:
+                        if days_until < 0:
+                            deadline_text = f" ⚠️ **OVERDUE** ({abs(days_until)} days ago)"
+                        elif days_until == 0:
+                            deadline_text = " ⏰ **Due today!**"
+                        elif days_until <= 3:
+                            deadline_text = f" ⚡ **Due in {days_until} days**"
+                        else:
+                            deadline_text = f" 📅 Due in {days_until} days"
+                
+                response_parts.append(
+                    f"{category_emoji} **{link.title}**\n"
+                    f"🔗 {link.url}\n"
+                    f"📂 Category: {link.category.value.replace('_', ' ').title()}\n"
+                    f"🆔 ID: `{link.id[:8]}`{deadline_text}\n"
+                )
+        
+        if response_parts:
             response = "\n".join(response_parts)
         else:
-            response = "❌ Failed to save links. Please try again."
+            response = "❌ Failed to process links. Please try again."
         
         state["messages"].append(AIMessage(content=response))
         return state
@@ -240,11 +290,12 @@ class LangGraphAgent:
 • Use: "mark <link_id> as in_progress/paused/waiting" to update status
 
 **📊 View Your Links:**
-• "list all" - Show all your saved links
-• "list jobs" - Show job applications
-• "list grants" - Show grant applications
+• "list all" - Show all active links (excludes overdue)
+• "list jobs" - Show active job applications
+• "list grants" - Show active grant applications
 • "list overdue" - Show overdue items
-• "list deadlines" - Show upcoming deadlines
+• "list deadlines [days]" - Show upcoming deadlines (e.g., "list deadlines 30")
+• "list reminders" - Show links with active reminders
 
 **🎯 Progress & Milestones:**
 • "add milestone <link_id> <title>" - Add milestone to task
@@ -352,26 +403,39 @@ Type "help" to see all available commands."""
             return "📭 You don't have any saved links yet. Send me a URL to get started!"
         
         if "all" in command_lower:
-            return self._format_links_list(user_links, "All Links")
+            # Filter out overdue items from "all" list
+            active_links = [link for link in user_links if not link.is_overdue()]
+            return self._format_links_list(active_links, "All Active Links")
         
         elif "job" in command_lower:
-            job_links = [link for link in user_links if link.category == LinkCategory.JOB_APPLICATION]
-            return self._format_links_list(job_links, "Job Applications")
+            job_links = [link for link in user_links if link.category == LinkCategory.JOB_APPLICATION and not link.is_overdue()]
+            return self._format_links_list(job_links, "Active Job Applications")
         
         elif "grant" in command_lower:
-            grant_links = [link for link in user_links if link.category == LinkCategory.GRANT_APPLICATION]
-            return self._format_links_list(grant_links, "Grant Applications")
+            grant_links = [link for link in user_links if link.category == LinkCategory.GRANT_APPLICATION and not link.is_overdue()]
+            return self._format_links_list(grant_links, "Active Grant Applications")
         
         elif "overdue" in command_lower:
             overdue_links = storage.get_overdue_links(user_id)
             return self._format_links_list(overdue_links, "Overdue Items")
         
         elif "deadline" in command_lower:
-            upcoming_links = storage.get_upcoming_deadlines(user_id, 7)
-            return self._format_links_list(upcoming_links, "Upcoming Deadlines (Next 7 Days)")
+            # Parse optional day parameter: "list deadlines 30" or "list deadlines"
+            days = 7  # default
+            parts = command_lower.split()
+            if len(parts) >= 3 and parts[2].isdigit():
+                days = int(parts[2])
+                days = min(days, 365)  # Cap at 1 year
+            
+            upcoming_links = storage.get_upcoming_deadlines(user_id, days)
+            return self._format_links_list(upcoming_links, f"Upcoming Deadlines (Next {days} Days)")
+        
+        elif "reminder" in command_lower:
+            reminder_links = self._get_links_with_reminders(user_id, storage)
+            return self._format_links_list(reminder_links, "Active Reminders")
         
         else:
-            return "📋 **Available list commands:**\n• list all\n• list jobs\n• list grants\n• list overdue\n• list deadlines"
+            return "📋 **Available list commands:**\n• list all\n• list jobs\n• list grants\n• list overdue\n• list deadlines [days] (e.g., 'list deadlines 30')\n• list reminders"
     
     def _format_links_list(self, links: List[LinkItem], title: str) -> str:
         """Format a list of links for display."""
@@ -418,6 +482,21 @@ Type "help" to see all available commands."""
             )
         
         return "\n".join(response_parts)
+    
+    def _get_links_with_reminders(self, user_id: str, storage: FileStorage) -> List[LinkItem]:
+        """Get links that have active reminders (have deadlines and are not done/expired)."""
+        user_links = storage.get_user_links(user_id)
+        reminder_links = []
+        
+        for link in user_links:
+            if (link.deadline and 
+                link.status not in [TaskStatus.DONE, TaskStatus.EXPIRED] and
+                not link.is_overdue()):  # Exclude overdue items
+                reminder_links.append(link)
+        
+        # Sort by deadline (closest first)
+        reminder_links.sort(key=lambda x: x.deadline if x.deadline else datetime.max)
+        return reminder_links
     
     def _handle_visualization_request(self) -> str:
         """Handle requests to visualize the LangGraph workflow."""

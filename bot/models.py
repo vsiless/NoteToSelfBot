@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from enum import Enum
 from pydantic import BaseModel, Field
 import uuid
@@ -176,6 +176,52 @@ class UserData(BaseModel):
         """Add a new link."""
         self.links.append(link)
         self.updated_at = datetime.now()
+    
+    def find_link_by_url(self, url: str) -> Optional[LinkItem]:
+        """Find a link by URL."""
+        for link in self.links:
+            if link.url == url:
+                return link
+        return None
+    
+    def add_or_update_link(self, new_link: LinkItem) -> Tuple[LinkItem, bool]:
+        """Add a new link or update existing one. Returns (link, is_new)."""
+        existing_link = self.find_link_by_url(new_link.url)
+        
+        if existing_link:
+            # Update existing link with new information
+            existing_link.title = new_link.title or existing_link.title
+            existing_link.description = new_link.description or existing_link.description
+            existing_link.category = new_link.category  # Always update category
+            
+            # Update deadline if new one is provided and different
+            if new_link.deadline and new_link.deadline != existing_link.deadline:
+                existing_link.deadline = new_link.deadline
+            
+            # Merge tags
+            for tag in new_link.tags:
+                if tag not in existing_link.tags:
+                    existing_link.tags.append(tag)
+            
+            # Update priority if higher
+            if new_link.priority > existing_link.priority:
+                existing_link.priority = new_link.priority
+            
+            # Update notes if provided
+            if new_link.notes:
+                if existing_link.notes:
+                    existing_link.notes += f"\n\n--- Updated {datetime.now().strftime('%Y-%m-%d %H:%M')} ---\n{new_link.notes}"
+                else:
+                    existing_link.notes = new_link.notes
+            
+            existing_link.updated_at = datetime.now()
+            self.updated_at = datetime.now()
+            return existing_link, False
+        else:
+            # Add new link
+            self.links.append(new_link)
+            self.updated_at = datetime.now()
+            return new_link, True
     
     def get_links_by_category(self, category: LinkCategory) -> List[LinkItem]:
         """Get links by category."""
